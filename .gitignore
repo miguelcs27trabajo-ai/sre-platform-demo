@@ -1,24 +1,11 @@
-# Python
-.venv/
-__pycache__/
-*.pyc
-*.pyo
-.pytest_cache/
-*.egg-info/
-dist/
-build/
-
-# IDEs
-.vscode/
-.idea/
-*.swp
-
 # Terraform
-infra/terraform/.terraform/
-infra/terraform/*.tfstate
-infra/terraform/*.tfstate.backup
-infra/terraform/*.tfvars
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+.terraform.lock.hcl
 
-# Secrets
-*.env
-.env*
+# Python
+app/.venv/
+app/__pycache__/
+app/.pytest_cache/
