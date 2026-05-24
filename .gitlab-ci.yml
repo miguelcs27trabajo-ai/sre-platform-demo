@@ -73,7 +73,7 @@ trivy:
   before_script:
     - trivy image --download-db-only
   script:
-    - trivy image --exit-code 1 --severity HIGH,CRITICAL --no-progress --input image.tar
+    - trivy image --exit-code 1 --severity HIGH,CRITICAL --no-progress --ignorefile app/.trivyignore --input image.tar
   dependencies:
     - build
 

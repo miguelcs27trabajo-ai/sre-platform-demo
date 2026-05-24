@@ -10,7 +10,10 @@ WORKDIR /app
 # Docker cachea esta capa si requirements.txt no cambia
 # Evita reinstalar todo cada vez que cambias código
 COPY requirements.txt .
-RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt \
+    && pip install --no-cache-dir --prefix=/install \
+    "jaraco.context>=6.1.0" \
+    "wheel>=0.46.2"
 
 # ================================
 # STAGE 2: runtime

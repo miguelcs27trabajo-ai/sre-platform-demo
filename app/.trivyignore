@@ -1,0 +1,5 @@
+# CVE-2025-69720 - ncurses buffer overflow
+# No fix available as of 2026-05-24
+# ncurses is not used directly by the application
+# Risk accepted: python:3.11-slim base image dependency
+CVE-2025-69720
