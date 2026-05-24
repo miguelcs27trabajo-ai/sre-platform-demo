@@ -14,6 +14,9 @@ variables:
     GCP_ID_TOKEN:
       aud: https://iam.googleapis.com/$GCP_WORKLOAD_IDENTITY_PROVIDER
 
+# ================================
+# STAGE 1: validate
+# ================================
 validate:
   stage: validate
   image: python:3.11-slim
@@ -25,6 +28,11 @@ validate:
     - flake8 src/ --max-line-length=100
     - pytest tests/unit/ -v
 
+# ================================
+# STAGE 2: build
+# docker:24 + dind es el patrón
+# oficial de GitLab para builds
+# ================================
 build:
   stage: build
   image: docker:24
@@ -38,6 +46,9 @@ build:
       - image.tar
     expire_in: 1 hour
 
+# ================================
+# STAGE: scan
+# ================================
 gitleaks:
   stage: scan
   image: zricethezav/gitleaks:latest
@@ -66,6 +77,11 @@ trivy:
   dependencies:
     - build
 
+# ================================
+# STAGE 3: publish
+# docker:24 + dind para Docker
+# Auth via REST API directamente
+# ================================
 publish:
   stage: publish
   image: docker:24
@@ -102,6 +118,12 @@ publish:
   dependencies:
     - build
 
+# ================================
+# STAGE 4: deploy
+# google/cloud-sdk:slim tiene gcloud
+# No necesita Docker
+# credential_config ANTES de usarlo
+# ================================
 deploy-dev:
   stage: deploy
   image: google/cloud-sdk:slim
