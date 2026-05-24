@@ -124,3 +124,38 @@ resource "google_cloud_run_v2_service_iam_member" "dev_public" {
   role     = "roles/run.invoker"
   member   = "allUsers"
 }
+
+resource "google_container_analysis_note" "cosign" {
+  project = var.project_id
+  name    = "cosign-attestor-note"
+
+  attestation_authority {
+    hint {
+      human_readable_name = "Cosign attestor"
+    }
+  }
+}
+
+resource "google_binary_authorization_attestor" "cosign" {
+  project = var.project_id
+  name    = "cosign-attestor"
+
+  attestation_authority_note {
+    note_reference = google_container_analysis_note.cosign.name
+  }
+}
+
+resource "google_binary_authorization_policy" "policy" {
+  project = var.project_id
+
+  default_admission_rule {
+    evaluation_mode  = "REQUIRE_ATTESTATION"
+    enforcement_mode = "ENFORCED_BLOCK_AND_AUDIT_LOG"
+
+    require_attestations_by = [
+      google_binary_authorization_attestor.cosign.name
+    ]
+  }
+
+  global_policy_evaluation_mode = "ENABLE"
+}
