@@ -13,4 +13,3 @@ class ServiceStatus(BaseModel):
     status: Status
     latency_ms: float
     message: str
-
