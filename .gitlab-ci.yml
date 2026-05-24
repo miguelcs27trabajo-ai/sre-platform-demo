@@ -51,7 +51,9 @@ build:
 # ================================
 gitleaks:
   stage: scan
-  image: zricethezav/gitleaks:latest
+  image:
+    name: zricethezav/gitleaks:latest
+    entrypoint: [""]
   script:
     - gitleaks detect --source=. --verbose
   allow_failure: false
@@ -65,7 +67,9 @@ semgrep:
 
 trivy:
   stage: scan
-  image: aquasec/trivy:latest
+  image:
+    name: aquasec/trivy:latest
+    entrypoint: [""]
   before_script:
     - trivy image --download-db-only
   script:
