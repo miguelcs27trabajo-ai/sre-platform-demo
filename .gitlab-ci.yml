@@ -113,14 +113,12 @@ deploy-dev:
       EOF
     - gcloud auth login --cred-file=/tmp/credential_config.json --quiet
   script:
-    - gcloud run deploy sre-platform-demo-dev
-      --image=$IMAGE:$CI_COMMIT_SHORT_SHA
+    - gcloud run services update-traffic sre-platform-demo-dev
       --region=$GCP_REGION
-      --platform=managed
-      --allow-unauthenticated
       --project=$GCP_PROJECT_ID
+      --update-tags=latest=$IMAGE:$CI_COMMIT_SHORT_SHA
   environment:
     name: dev
-    url: https://sre-platform-demo-dev-$GCP_PROJECT_ID.$GCP_REGION.run.app
+    url: https://sre-platform-demo-dev-181865717658.europe-west1.run.app
   only:
     - main
