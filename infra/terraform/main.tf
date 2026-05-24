@@ -76,3 +76,15 @@ resource "google_service_account_iam_member" "gitlab_wif" {
   role               = "roles/iam.workloadIdentityUser"
   member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.gitlab.name}/attribute.namespace/miguelcs27trabajo-group"
 }
+
+# Permite a gitlab-ci actuar como la compute service account
+# necesario para desplegar en Cloud Run
+resource "google_service_account_iam_member" "gitlab_ci_act_as_compute" {
+  service_account_id = "projects/${var.project_id}/serviceAccounts/${data.google_project.project.number}-compute@developer.gserviceaccount.com"
+  role               = "roles/iam.serviceAccountUser"
+  member             = "serviceAccount:${google_service_account.gitlab_ci.email}"
+}
+
+data "google_project" "project" {
+  project_id = var.project_id
+}
