@@ -6,12 +6,16 @@ stages:
 
 variables:
   IMAGE: $GCP_REGION-docker.pkg.dev/$GCP_PROJECT_ID/sre-platform-demo/api
+  DOCKER_TLS_CERTDIR: "/certs"
 
 .gcp-auth: &gcp-auth
   id_tokens:
     GCP_ID_TOKEN:
       aud: https://iam.googleapis.com/$GCP_WORKLOAD_IDENTITY_PROVIDER
 
+# ================================
+# STAGE 1: validate
+# ================================
 validate:
   stage: validate
   image: python:3.11-slim
@@ -23,13 +27,16 @@ validate:
     - flake8 src/ --max-line-length=100
     - pytest tests/unit/ -v
 
+# ================================
+# STAGE 2: build
+# docker:24 + dind es el patrón
+# oficial de GitLab para builds
+# ================================
 build:
   stage: build
   image: docker:24
   services:
     - docker:24-dind
-  variables:
-    DOCKER_TLS_CERTDIR: "/certs"
   script:
     - docker build --platform linux/amd64 -t $IMAGE:$CI_COMMIT_SHORT_SHA -f app/Dockerfile app/
     - docker save $IMAGE:$CI_COMMIT_SHORT_SHA > image.tar
@@ -38,29 +45,39 @@ build:
       - image.tar
     expire_in: 1 hour
 
+# ================================
+# STAGE 3: publish
+# docker:24 + dind para Docker
+# Auth via REST API directamente
+# ================================
 publish:
   stage: publish
-  image: google/cloud-sdk:slim
+  image: docker:24
+  services:
+    - docker:24-dind
   <<: *gcp-auth
   before_script:
-    - echo $GCP_ID_TOKEN > /tmp/oidc_token.txt
+    - apk add --no-cache curl python3
     - |
-      cat > /tmp/credential_config.json << EOF
-      {
-        "type": "external_account",
-        "audience": "//iam.googleapis.com/$GCP_WORKLOAD_IDENTITY_PROVIDER",
-        "subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
-        "token_url": "https://sts.googleapis.com/v1/token",
-        "credential_source": {
-          "file": "/tmp/oidc_token.txt"
-        },
-        "service_account_impersonation_url": "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/$GCP_SERVICE_ACCOUNT:generateAccessToken"
-      }
-      EOF
-    - gcloud auth login --cred-file=/tmp/credential_config.json --quiet
-    - gcloud auth configure-docker $GCP_REGION-docker.pkg.dev --quiet
-    - apt-get update -qq && apt-get install -y -qq docker.io
-    - service docker start || true
+      STS_TOKEN=$(curl -sf -X POST \
+        "https://sts.googleapis.com/v1/token" \
+        -H "Content-Type: application/json" \
+        -d "{
+          \"audience\": \"//iam.googleapis.com/${GCP_WORKLOAD_IDENTITY_PROVIDER}\",
+          \"grantType\": \"urn:ietf:params:oauth:grant-type:token-exchange\",
+          \"requestedTokenType\": \"urn:ietf:params:oauth:token-type:access_token\",
+          \"scope\": \"https://www.googleapis.com/auth/cloud-platform\",
+          \"subjectTokenType\": \"urn:ietf:params:oauth:token-type:jwt\",
+          \"subjectToken\": \"${GCP_ID_TOKEN}\"
+        }" | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+    - |
+      ACCESS_TOKEN=$(curl -sf -X POST \
+        "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${GCP_SERVICE_ACCOUNT}:generateAccessToken" \
+        -H "Authorization: Bearer ${STS_TOKEN}" \
+        -H "Content-Type: application/json" \
+        -d '{"scope":["https://www.googleapis.com/auth/cloud-platform"]}' \
+        | python3 -c "import sys,json; print(json.load(sys.stdin)['accessToken'])")
+    - echo "${ACCESS_TOKEN}" | docker login -u oauth2accesstoken --password-stdin ${GCP_REGION}-docker.pkg.dev
   script:
     - docker load < image.tar
     - docker push $IMAGE:$CI_COMMIT_SHORT_SHA
@@ -69,23 +86,29 @@ publish:
   dependencies:
     - build
 
+# ================================
+# STAGE 4: deploy
+# google/cloud-sdk:slim tiene gcloud
+# No necesita Docker
+# credential_config ANTES de usarlo
+# ================================
 deploy-dev:
   stage: deploy
   image: google/cloud-sdk:slim
   <<: *gcp-auth
   before_script:
-    - echo $GCP_ID_TOKEN > /tmp/oidc_token.txt
+    - echo "${GCP_ID_TOKEN}" > /tmp/oidc_token.txt
     - |
       cat > /tmp/credential_config.json << EOF
       {
         "type": "external_account",
-        "audience": "//iam.googleapis.com/$GCP_WORKLOAD_IDENTITY_PROVIDER",
+        "audience": "//iam.googleapis.com/${GCP_WORKLOAD_IDENTITY_PROVIDER}",
         "subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
         "token_url": "https://sts.googleapis.com/v1/token",
         "credential_source": {
           "file": "/tmp/oidc_token.txt"
         },
-        "service_account_impersonation_url": "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/$GCP_SERVICE_ACCOUNT:generateAccessToken"
+        "service_account_impersonation_url": "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${GCP_SERVICE_ACCOUNT}:generateAccessToken"
       }
       EOF
     - gcloud auth login --cred-file=/tmp/credential_config.json --quiet
