@@ -1,10 +1,12 @@
-from enum import Enum
 from pydantic import BaseModel
+from enum import Enum
+
 
 class Status(str, Enum):
     healthy = "healthy"
     degraded = "degraded"
     down = "down"
+
 
 class ServiceStatus(BaseModel):
     name: str

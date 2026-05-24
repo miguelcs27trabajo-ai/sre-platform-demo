@@ -1,6 +1,7 @@
 import random
 from src.models.service import ServiceStatus, Status
 
+
 class ServiceChecker:
     """
     Simula el estado de servicios.
