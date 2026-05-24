@@ -1,5 +1,3 @@
-# .gitlab-ci.yml
-
 stages:
   - validate
   - build
@@ -9,38 +7,29 @@ stages:
 variables:
   IMAGE: $GCP_REGION-docker.pkg.dev/$GCP_PROJECT_ID/sre-platform-demo/api
 
-# Configuración OIDC: cómo GitLab se autentica en GCP
 .gcp-auth: &gcp-auth
   id_tokens:
     GCP_ID_TOKEN:
-      aud: https://iam.googleapis.com/projects/181865717658/locations/global/workloadIdentityPools/gitlab-pool/providers/gitlab-provider
+      aud: https://iam.googleapis.com/$GCP_WORKLOAD_IDENTITY_PROVIDER
 
-# ================================
-# STAGE 1: validate
-# lint y tests
-# ================================
 validate:
   stage: validate
   image: python:3.11-slim
   before_script:
     - cd app
     - pip install -r requirements.txt --quiet
-  script:
     - pip install flake8 --quiet
+  script:
     - flake8 src/ --max-line-length=100
     - pytest tests/unit/ -v
 
-# ================================
-# STAGE 2: build
-# construye la imagen Docker
-# ================================
 build:
   stage: build
   image: docker:24
   services:
     - docker:24-dind
-  before_script:
-    - docker info
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
   script:
     - docker build --platform linux/amd64 -t $IMAGE:$CI_COMMIT_SHORT_SHA -f app/Dockerfile app/
     - docker save $IMAGE:$CI_COMMIT_SHORT_SHA > image.tar
@@ -49,20 +38,28 @@ build:
       - image.tar
     expire_in: 1 hour
 
-# ================================
-# STAGE 3: publish
-# sube la imagen a Artifact Registry
-# ================================
 publish:
   stage: publish
-  image: gcr.io/google.com/cloudsdktool/cloud-sdk:latest
+  image: google/cloud-sdk:slim
   <<: *gcp-auth
   before_script:
-    - apt-get update -qq && apt-get install -y -qq docker.io
     - echo $GCP_ID_TOKEN > /tmp/oidc_token.txt
-    - gcloud auth login --cred-file=/tmp/oidc_token.txt --quiet
-    - gcloud config set auth/impersonate_service_account $GCP_SERVICE_ACCOUNT
+    - |
+      cat > /tmp/credential_config.json << EOF
+      {
+        "type": "external_account",
+        "audience": "//iam.googleapis.com/$GCP_WORKLOAD_IDENTITY_PROVIDER",
+        "subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
+        "token_url": "https://sts.googleapis.com/v1/token",
+        "credential_source": {
+          "file": "/tmp/oidc_token.txt"
+        },
+        "service_account_impersonation_url": "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/$GCP_SERVICE_ACCOUNT:generateAccessToken"
+      }
+      EOF
+    - gcloud auth login --cred-file=/tmp/credential_config.json --quiet
     - gcloud auth configure-docker $GCP_REGION-docker.pkg.dev --quiet
+    - apt-get update -qq && apt-get install -y -qq docker.io
     - service docker start || true
   script:
     - docker load < image.tar
@@ -72,14 +69,26 @@ publish:
   dependencies:
     - build
 
-# ================================
-# STAGE 4: deploy
-# despliega en Cloud Run
-# ================================
 deploy-dev:
   stage: deploy
   image: google/cloud-sdk:slim
   <<: *gcp-auth
+  before_script:
+    - echo $GCP_ID_TOKEN > /tmp/oidc_token.txt
+    - |
+      cat > /tmp/credential_config.json << EOF
+      {
+        "type": "external_account",
+        "audience": "//iam.googleapis.com/$GCP_WORKLOAD_IDENTITY_PROVIDER",
+        "subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
+        "token_url": "https://sts.googleapis.com/v1/token",
+        "credential_source": {
+          "file": "/tmp/oidc_token.txt"
+        },
+        "service_account_impersonation_url": "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/$GCP_SERVICE_ACCOUNT:generateAccessToken"
+      }
+      EOF
+    - gcloud auth login --cred-file=/tmp/credential_config.json --quiet
   script:
     - gcloud run deploy sre-platform-demo-dev
       --image=$IMAGE:$CI_COMMIT_SHORT_SHA
