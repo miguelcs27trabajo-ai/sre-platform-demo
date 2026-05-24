@@ -55,18 +55,15 @@ build:
 # ================================
 publish:
   stage: publish
-  image: docker:24
-  services:
-    - docker:24-dind
+  image: gcr.io/google.com/cloudsdktool/cloud-sdk:latest
   <<: *gcp-auth
   before_script:
-    - apk add --no-cache curl python3
-    - curl -sSL https://sdk.cloud.google.com | bash -s -- --disable-prompts
-    - export PATH=$PATH:/root/google-cloud-sdk/bin
+    - apt-get update -qq && apt-get install -y -qq docker.io
     - echo $GCP_ID_TOKEN > /tmp/oidc_token.txt
     - gcloud auth login --cred-file=/tmp/oidc_token.txt --quiet
     - gcloud config set auth/impersonate_service_account $GCP_SERVICE_ACCOUNT
     - gcloud auth configure-docker $GCP_REGION-docker.pkg.dev --quiet
+    - service docker start || true
   script:
     - docker load < image.tar
     - docker push $IMAGE:$CI_COMMIT_SHORT_SHA
