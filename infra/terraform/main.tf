@@ -88,3 +88,39 @@ resource "google_service_account_iam_member" "gitlab_ci_act_as_compute" {
 data "google_project" "project" {
   project_id = var.project_id
 }
+
+resource "google_cloud_run_v2_service" "dev" {
+  name     = "sre-platform-demo-dev"
+  location = var.region
+  project  = var.project_id
+
+  template {
+    containers {
+      image = "${var.region}-docker.pkg.dev/${var.project_id}/sre-platform-demo/api:latest"
+
+      resources {
+        limits = {
+          cpu    = "1"
+          memory = "512Mi"
+        }
+      }
+    }
+
+    scaling {
+      min_instance_count = 0
+      max_instance_count = 3
+    }
+
+    timeout = "30s"
+  }
+
+  ingress = "INGRESS_TRAFFIC_ALL"
+}
+
+resource "google_cloud_run_v2_service_iam_member" "dev_public" {
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_service.dev.name
+  role     = "roles/run.invoker"
+  member   = "allUsers"
+}
