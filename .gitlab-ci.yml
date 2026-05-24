@@ -1,0 +1,92 @@
+# .gitlab-ci.yml
+
+stages:
+  - validate
+  - build
+  - publish
+  - deploy
+
+variables:
+  IMAGE: $GCP_REGION-docker.pkg.dev/$GCP_PROJECT_ID/sre-platform-demo/api
+
+# Configuración OIDC: cómo GitLab se autentica en GCP
+.gcp-auth: &gcp-auth
+  id_tokens:
+    GCP_ID_TOKEN:
+      aud: https://iam.googleapis.com/projects/181865717658/locations/global/workloadIdentityPools/gitlab-pool/providers/gitlab-provider
+
+# ================================
+# STAGE 1: validate
+# lint y tests
+# ================================
+validate:
+  stage: validate
+  image: python:3.11-slim
+  before_script:
+    - cd app
+    - pip install -r requirements.txt --quiet
+  script:
+    - pip install flake8 --quiet
+    - flake8 src/ --max-line-length=100
+    - pytest tests/unit/ -v
+
+# ================================
+# STAGE 2: build
+# construye la imagen Docker
+# ================================
+build:
+  stage: build
+  image: docker:24
+  services:
+    - docker:24-dind
+  before_script:
+    - docker info
+  script:
+    - docker build --platform linux/amd64 -t $IMAGE:$CI_COMMIT_SHORT_SHA -f app/Dockerfile app/
+    - docker save $IMAGE:$CI_COMMIT_SHORT_SHA > image.tar
+  artifacts:
+    paths:
+      - image.tar
+    expire_in: 1 hour
+
+# ================================
+# STAGE 3: publish
+# sube la imagen a Artifact Registry
+# ================================
+publish:
+  stage: publish
+  image: google/cloud-sdk:slim
+  <<: *gcp-auth
+  before_script:
+    - echo $GCP_ID_TOKEN > /tmp/token.txt
+    - gcloud auth login --cred-file=/tmp/token.txt --quiet || true
+    - gcloud auth print-access-token --impersonate-service-account=$GCP_SERVICE_ACCOUNT > /tmp/access_token.txt
+    - cat /tmp/access_token.txt | docker login -u oauth2accesstoken --password-stdin $GCP_REGION-docker.pkg.dev
+  script:
+    - docker load < image.tar
+    - docker push $IMAGE:$CI_COMMIT_SHORT_SHA
+    - docker tag $IMAGE:$CI_COMMIT_SHORT_SHA $IMAGE:latest
+    - docker push $IMAGE:latest
+  dependencies:
+    - build
+
+# ================================
+# STAGE 4: deploy
+# despliega en Cloud Run
+# ================================
+deploy-dev:
+  stage: deploy
+  image: google/cloud-sdk:slim
+  <<: *gcp-auth
+  script:
+    - gcloud run deploy sre-platform-demo-dev
+      --image=$IMAGE:$CI_COMMIT_SHORT_SHA
+      --region=$GCP_REGION
+      --platform=managed
+      --allow-unauthenticated
+      --project=$GCP_PROJECT_ID
+  environment:
+    name: dev
+    url: https://sre-platform-demo-dev-$GCP_PROJECT_ID.$GCP_REGION.run.app
+  only:
+    - main
